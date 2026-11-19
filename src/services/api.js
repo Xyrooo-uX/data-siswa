@@ -1,7 +1,28 @@
 import { initialStudents } from './initialData';
 
-// URL backend Laravel (dapat diubah via .env: VITE_API_URL)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+// Penentuan URL API secara cerdas & otomatis:
+// 1. Jika diset di .env (misal VITE_API_URL saat deploy), gunakan nilai tersebut.
+// 2. Jika di browser, gunakan endpoint relatif '/api' agar otomatis mengikuti domain/IP perangkat
+//    (baik dibuka dari Laptop via localhost, IP LAN, maupun domain publik seperti ngrok).
+// 3. Fallback default ke 'http://127.0.0.1:8000/api'.
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    return '/api';
+  }
+  return 'http://127.0.0.1:8000/api';
+};
+
+export const API_BASE_URL = getApiBaseUrl();
+
+// Header bawaan termasuk perlindungan bypass warning untuk ngrok
+const defaultHeaders = {
+  'Accept': 'application/json',
+  'ngrok-skip-browser-warning': 'true'
+};
+
 const LOCAL_STORAGE_KEY = 'sip_data_siswa_records_v4';
 const LOCAL_USERS_KEY = 'sip_data_users_db_v4';
 const CURRENT_USER_KEY = 'sip_current_user_v4';
@@ -96,15 +117,32 @@ export function logoutUser() {
   return { success: true };
 }
 
-// Login User (Mencoba Laravel API, fallback ke Local DB)
-export async function loginUser(emailOrNisn, password) {
-  // 1. Coba hubungi backend Laravel
+// Ambil info network IP dari server
+export async function getNetworkInfo() {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`${API_BASE_URL}/network-info`, {
+      headers: defaultHeaders,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch { }
+  return null;
+}
+
+// Login User (Mencoba Server API, fallback ke Local DB)
+export async function loginUser(emailOrNisn, password) {
+  // 1. Coba hubungi backend server (Vite/Laravel/PHP)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: emailOrNisn, password }),
       signal: controller.signal
     });
@@ -116,7 +154,7 @@ export async function loginUser(emailOrNisn, password) {
       saveCurrentUser(user);
       return { success: true, user, source: 'backend' };
     } else {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       return { success: false, message: err.message || 'Login gagal.' };
     }
   } catch {
@@ -153,13 +191,13 @@ export async function loginUser(emailOrNisn, password) {
 
 // Register Siswa Baru (Role otomatis 'siswa')
 export async function registerUser({ name, email, nisn, password }) {
-  // 1. Coba registrasi ke backend Laravel
+  // 1. Coba registrasi ke backend server
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, email, nisn, password }),
       signal: controller.signal
     });
@@ -171,7 +209,7 @@ export async function registerUser({ name, email, nisn, password }) {
       saveCurrentUser(newUser);
       return { success: true, user: newUser, source: 'backend' };
     } else {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       return { success: false, message: err.message || 'Gagal registrasi akun siswa.' };
     }
   } catch {
@@ -184,10 +222,10 @@ export async function registerUser({ name, email, nisn, password }) {
   const cleanNisn = nisn.trim();
 
   // Validasi unik email & NISN
-  if (users.some(u => u.email.toLowerCase() === cleanEmail)) {
+  if (users.some(u => u.email && u.email.toLowerCase() === cleanEmail)) {
     return { success: false, message: 'Email sudah terdaftar. Silakan gunakan email lain atau login.' };
   }
-  if (users.some(u => u.nisn === cleanNisn)) {
+  if (cleanNisn && users.some(u => u.nisn === cleanNisn)) {
     return { success: false, message: 'NISN sudah terdaftar dalam sistem.' };
   }
 
@@ -220,12 +258,16 @@ export async function registerUser({ name, email, nisn, password }) {
 // DATA SISWA (CRUD, FILTERS, & STATS)
 // ---------------------------------------------------------------------------
 
-// Cek apakah Laravel Backend sedang aktif / online
+// Cek apakah Server Backend sedang aktif / online
 export async function checkBackendConnection() {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch(`${API_BASE_URL}/health`, { credentials: 'omit', signal: controller.signal });
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`${API_BASE_URL}/health`, {
+      headers: defaultHeaders,
+      credentials: 'omit',
+      signal: controller.signal
+    });
     clearTimeout(timeoutId);
     return res.ok;
   } catch {
@@ -235,7 +277,7 @@ export async function checkBackendConnection() {
 
 // Ambil semua data siswa dengan filter & pencarian
 export async function fetchStudents(filters = {}) {
-  // Coba panggil Laravel API terlebih dahulu
+  // Coba panggil server API terlebih dahulu
   try {
     const query = new URLSearchParams();
     if (filters.ekonomi && filters.ekonomi !== 'Semua') query.append('ekonomi', filters.ekonomi);
@@ -244,13 +286,21 @@ export async function fetchStudents(filters = {}) {
     if (filters.search) query.append('search', filters.search);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`${API_BASE_URL}/students?${query.toString()}`, { signal: controller.signal });
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(`${API_BASE_URL}/students?${query.toString()}`, {
+      headers: defaultHeaders,
+      signal: controller.signal
+    });
     clearTimeout(timeoutId);
 
     if (res.ok) {
       const data = await res.json();
-      return { success: true, data: data.data || data, source: 'backend' };
+      const list = data.data || data;
+      // Sinkronkan ke local cache untuk perlindungan offline
+      if (Array.isArray(list)) {
+        saveLocalRecords(list);
+      }
+      return { success: true, data: list, source: 'backend' };
     }
   } catch {
     // Backend tidak aktif, gunakan localStorage fallback
@@ -289,22 +339,27 @@ export async function createStudent(payload) {
   try {
     const isFormData = payload instanceof FormData;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
 
     const res = await fetch(`${API_BASE_URL}/students`, {
       method: 'POST',
       body: isFormData ? payload : JSON.stringify(payload),
-      headers: isFormData ? {} : { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: isFormData ? { 'ngrok-skip-browser-warning': 'true' } : { ...defaultHeaders, 'Content-Type': 'application/json' },
       signal: controller.signal
     });
     clearTimeout(timeoutId);
 
     if (res.ok) {
       const result = await res.json();
-      return { success: true, data: result.data || result, source: 'backend' };
+      const created = result.data || result;
+      // Perbarui juga local cache
+      const local = getLocalRecords();
+      local.unshift(created);
+      saveLocalRecords(local);
+      return { success: true, data: created, source: 'backend' };
     }
   } catch {
-    // Fallback simpan ke local storage
+    // Fallback simpan ke local storage jika server tidak merespons
   }
 
   const records = getLocalRecords();
@@ -335,14 +390,26 @@ export async function createStudent(payload) {
 // Update status verifikasi atau catatan siswa oleh Admin
 export async function updateStudent(id, updates) {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(`${API_BASE_URL}/students/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(updates)
+      headers: { ...defaultHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
+
     if (res.ok) {
       const result = await res.json();
-      return { success: true, data: result.data || result, source: 'backend' };
+      const updated = result.data || result;
+      const records = getLocalRecords();
+      const idx = records.findIndex(r => r.id === Number(id));
+      if (idx !== -1) {
+        records[idx] = { ...records[idx], ...updates };
+        saveLocalRecords(records);
+      }
+      return { success: true, data: updated, source: 'backend' };
     }
   } catch {
     // fallback local
@@ -362,8 +429,20 @@ export async function updateStudent(id, updates) {
 // Hapus data siswa
 export async function deleteStudent(id) {
   try {
-    const res = await fetch(`${API_BASE_URL}/students/${id}`, { method: 'DELETE' });
-    if (res.ok) return { success: true, source: 'backend' };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${API_BASE_URL}/students/${id}`, {
+      method: 'DELETE',
+      headers: defaultHeaders,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      let records = getLocalRecords();
+      records = records.filter(r => r.id !== Number(id));
+      saveLocalRecords(records);
+      return { success: true, source: 'backend' };
+    }
   } catch {
     // fallback local
   }

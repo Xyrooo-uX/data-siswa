@@ -40,7 +40,7 @@ export default function AuthPage({ onLoginSuccess, onOpenGuide, backendOnline })
         setErrorMessage(res.message || 'Login gagal, periksa kredensial Anda.');
       }
     } catch {
-      setErrorMessage('Terjadi kendala saat melakukan login.');
+      setErrorMessage('Terjadi kesalahan saat melakukan login.');
     } finally {
       setIsLoading(false);
     }
@@ -264,4 +264,3 @@ export default function AuthPage({ onLoginSuccess, onOpenGuide, backendOnline })
     </div>
   );
 }
-

@@ -34,7 +34,5 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // Catatan: Data siswa dan foto tempat tinggal dibiarkan kosong
-        // agar pengguna dapat menginputkan datanya sendiri secara mandiri.
     }
 }

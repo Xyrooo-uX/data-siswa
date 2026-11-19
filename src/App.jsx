@@ -23,17 +23,17 @@ export default function App() {
   const [siswaTab, setSiswaTab] = useState('form');
 
   // Muat data siswa dari API/LocalStorage
-  const loadStudents = useCallback(async () => {
-    setIsLoading(true);
+  const loadStudents = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const res = await fetchStudents();
-      if (res.success) {
-        setStudents(res.data || []);
+      if (res.success && Array.isArray(res.data)) {
+        setStudents(res.data);
       }
     } catch (err) {
       console.error('Gagal memuat siswa:', err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
@@ -46,6 +46,23 @@ export default function App() {
     }
     init();
   }, [loadStudents]);
+
+  // Polling sinkronisasi realtime antara Laptop & HP setiap 3,5 detik
+  useEffect(() => {
+    const syncInterval = setInterval(async () => {
+      try {
+        const isOnline = await checkBackendConnection();
+        setBackendOnline(isOnline);
+        if (currentUser) {
+          await loadStudents(true);
+        }
+      } catch {
+        // abaikan error koneksi saat background polling
+      }
+    }, 3500);
+
+    return () => clearInterval(syncInterval);
+  }, [currentUser, loadStudents]);
 
   // Handler Login Berhasil
   const handleLoginSuccess = (user) => {
