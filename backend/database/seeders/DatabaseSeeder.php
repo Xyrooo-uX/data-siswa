@@ -14,12 +14,12 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // 1. Akun Admin
-        User::firstOrCreate(
+        User::updateOrCreate(
             ['email' => 'admin@sekolah.sch.id'],
             [
                 'name' => 'Administrator Sekolah',
                 'role' => 'admin',
-                'password' => Hash::make('admin123'),
+                'password' => Hash::make('@AkunAdmin1234'),
             ]
         );
 

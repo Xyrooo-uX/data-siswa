@@ -6,7 +6,6 @@
       "email": "admin@sekolah.sch.id",
       "nisn": null,
       "role": "admin",
-      "password": "admin123",
       "created_at": "2026-11-18T03:02:57.408Z"
     },
     {
@@ -15,26 +14,15 @@
       "email": "siswa@sekolah.sch.id",
       "nisn": "0068192341",
       "role": "siswa",
-      "password": "siswa123",
       "created_at": "2026-11-18T03:02:57.414Z"
     },
     {
-      "id": 1794972701433,
-      "name": "Super",
-      "email": "superlyonere@gmail.com",
-      "nisn": "lyonere",
+      "id": 1795661327851,
+      "name": "david",
+      "email": "david@gmail.com",
+      "nisn": "096767890987667",
       "role": "siswa",
-      "password": "123456",
-      "created_at": "2026-11-18T03:31:41.433Z"
-    },
-    {
-      "id": 1795071239841,
-      "name": "rizky s",
-      "email": "rizkynakal@gmail.com",
-      "nisn": "12345678910",
-      "role": "siswa",
-      "password": "123456",
-      "created_at": "2026-11-19T06:53:59.841Z"
+      "created_at": "2026-11-26T02:48:47.851Z"
     }
   ],
   "students": []

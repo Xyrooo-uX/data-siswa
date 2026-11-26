@@ -1,34 +1,42 @@
 import React, { useState } from 'react';
+import toast from 'react-hot-toast';
 import { updateStudent } from '../services/api';
 
 export default function StudentDetailModal({ student, onClose, onUpdated }) {
-  if (!student) return null;
-
-  const [verifikasi, setVerifikasi] = useState(student.status_verifikasi || 'Menunggu');
-  const [catatan, setCatatan] = useState(student.catatan_admin || '');
+  const [verifikasi, setVerifikasi] = useState(student?.status_verifikasi || 'Menunggu');
+  const [catatan, setCatatan] = useState(student?.catatan_admin || '');
   const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [isPhotoZoomed, setIsPhotoZoomed] = useState(false);
+
+  if (!student) return null;
 
   const handleSaveStatus = async () => {
     setIsSaving(true);
     try {
-      await updateStudent(student.id, {
+      const response = await updateStudent(student.id, {
         status_verifikasi: verifikasi,
         catatan_admin: catatan
       });
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
+
+      if (!response.success) {
+        toast.error(response.message || 'Gagal memperbarui status.');
+        return;
+      }
+
+      toast.success('Status verifikasi berhasil diperbarui.');
       if (onUpdated) onUpdated();
     } catch {
-      alert('Gagal memperbarui status');
+      toast.error('Gagal memperbarui status.');
     } finally {
       setIsSaving(false);
     }
   };
 
   // Link Google Maps
-  const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${student.alamat_lengkap}, ${student.kota_kabupaten || ''}`)}`;
+  const mapQuery = student.latitude != null && student.longitude != null
+    ? `${student.latitude},${student.longitude}`
+    : `${student.alamat_lengkap}, ${student.kota_kabupaten || ''}`;
+  const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -155,6 +163,14 @@ export default function StudentDetailModal({ student, onClose, onUpdated }) {
                   <span className="address-text">{student.alamat_lengkap}</span>
                 </div>
                 <div className="info-row">
+                  <span className="info-label">RT / RW:</span>
+                  <span>{student.rt || '-'} / {student.rw || '-'}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Blok / Nomor Rumah:</span>
+                  <span>{student.blok || '-'} / {student.nomor_rumah || '-'}</span>
+                </div>
+                <div className="info-row">
                   <span className="info-label">Kelurahan / Desa:</span>
                   <span>{student.kelurahan_desa || '-'}, Kec. {student.kecamatan || '-'}</span>
                 </div>
@@ -211,9 +227,6 @@ export default function StudentDetailModal({ student, onClose, onUpdated }) {
               </div>
             </div>
 
-            {saveSuccess && (
-              <p className="save-success-msg">Status verifikasi berhasil diperbarui.</p>
-            )}
           </div>
         </div>
 

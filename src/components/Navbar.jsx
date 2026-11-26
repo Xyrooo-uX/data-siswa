@@ -3,8 +3,6 @@ import React from 'react';
 export default function Navbar({
   currentUser,
   onLogout,
-  onOpenGuide,
-  backendOnline,
   siswaTab,
   setSiswaTab
 }) {
@@ -14,10 +12,7 @@ export default function Navbar({
         {/* Brand / Logo */}
         <div className="navbar-brand">
           <div className="brand-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-              <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-            </svg>
+            <img src="/smk.png" alt="Logo SMK Negeri 12 Malang" />
           </div>
           <div className="brand-text">
             <span className="brand-title">SIP DATA SISWA</span>
@@ -49,27 +44,6 @@ export default function Navbar({
 
         {/* Right Action & User Profile */}
         <div className="navbar-actions">
-          {/* Status Koneksi Backend / Local Fallback */}
-          <div className={`status-pill ${backendOnline ? 'online' : 'offline'}`} title={backendOnline ? 'Terhubung ke Backend Laravel API' : 'Mode Offline / LocalStorage Aktif (Siap Demo)'}>
-            <span className="status-dot"></span>
-            <span>{backendOnline ? 'Laravel Online' : 'Local Storage Mode'}</span>
-          </div>
-
-          {/* Tombol Panduan Tugas 2 Orang */}
-          <button 
-            type="button" 
-            onClick={onOpenGuide}
-            className="btn-guide"
-            title="Lihat pembagian tugas 2 orang & panduan hosting"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="16" x2="12" y2="12"></line>
-              <line x1="12" y1="8" x2="12.01" y2="8"></line>
-            </svg>
-            <span>Panduan Tugas</span>
-          </button>
-
           {/* User Profile & Logout */}
           {currentUser && (
             <div className="user-profile-menu">

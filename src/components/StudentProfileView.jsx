@@ -93,6 +93,13 @@ export default function StudentProfileView({
           <div className="address-box">
             <strong>Alamat Tempat Tinggal Saat Ini:</strong>
             <p>{myRecord.alamat_lengkap}</p>
+            {(myRecord.rt || myRecord.rw || myRecord.blok || myRecord.nomor_rumah) && (
+              <span className="location-sub">
+                RT {myRecord.rt || '-'} / RW {myRecord.rw || '-'}
+                {myRecord.blok ? `, Blok ${myRecord.blok}` : ''}
+                {myRecord.nomor_rumah ? ` No. ${myRecord.nomor_rumah}` : ''}
+              </span>
+            )}
             <span className="location-sub">
               {myRecord.kelurahan_desa ? `Desa ${myRecord.kelurahan_desa}, ` : ''}
               {myRecord.kecamatan ? `Kec. ${myRecord.kecamatan}, ` : ''}

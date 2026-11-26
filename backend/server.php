@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 $dbFilePath = __DIR__ . '/database/data_synced.json';
+$authFilePath = __DIR__ . '/storage/app/private/auth_users.json';
 
 // Inisialisasi DB Default jika belum ada
 $defaultDb = [
@@ -29,7 +30,6 @@ $defaultDb = [
             'email' => 'admin@sekolah.sch.id',
             'nisn' => null,
             'role' => 'admin',
-            'password' => 'admin123',
             'created_at' => date('c')
         ],
         [
@@ -38,34 +38,173 @@ $defaultDb = [
             'email' => 'siswa@sekolah.sch.id',
             'nisn' => '0068192341',
             'role' => 'siswa',
-            'password' => 'siswa123',
             'created_at' => date('c')
         ]
     ],
     'students' => []
 ];
 
-function readDatabase($path, $default) {
-    if (!file_exists($path)) {
-        $dir = dirname($path);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-        file_put_contents($path, json_encode($default, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        return $default;
+const AUTH_HASH_ITERATIONS = 600000;
+$defaultAuthUsers = [
+    ['user_id' => 1, 'password' => '@AkunAdmin1234', 'seed_version' => 2],
+    ['user_id' => 2, 'password' => 'siswa123', 'seed_version' => 1]
+];
+
+function readAuthUsers($path) {
+    if (!file_exists($path)) return [];
+    $authUsers = json_decode(file_get_contents($path), true);
+    if (!is_array($authUsers)) {
+        throw new RuntimeException('Invalid private authentication store format.');
     }
-    $raw = file_get_contents($path);
-    $data = json_decode($raw, true);
-    if (!isset($data['users'])) $data['users'] = $default['users'];
-    if (!isset($data['students'])) $data['students'] = [];
+    return $authUsers;
+}
+
+function writeAuthUsers($path, $authUsers) {
+    $dir = dirname($path);
+    if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
+        throw new RuntimeException('Unable to create private authentication store directory.');
+    }
+    if (file_put_contents($path, json_encode($authUsers, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX) === false) {
+        throw new RuntimeException('Unable to write private authentication store.');
+    }
+    chmod($path, 0600);
+}
+
+function createAuthUser($userId, $password, $seedVersion = null) {
+    $salt = bin2hex(random_bytes(16));
+    $authUser = [
+        'user_id' => $userId,
+        'salt' => $salt,
+        'iterations' => AUTH_HASH_ITERATIONS,
+        'hash' => hash_pbkdf2('sha256', $password, $salt, AUTH_HASH_ITERATIONS, 128)
+    ];
+    if ($seedVersion !== null) $authUser['seed_version'] = $seedVersion;
+    return $authUser;
+}
+
+function verifyAuthUser($password, $authUser) {
+    if (
+        !is_string($password) ||
+        !is_array($authUser) ||
+        !is_string($authUser['salt'] ?? null) ||
+        !is_string($authUser['hash'] ?? null) ||
+        !is_numeric($authUser['iterations'] ?? null) ||
+        $authUser['iterations'] < 1 ||
+        $authUser['iterations'] > AUTH_HASH_ITERATIONS
+    ) {
+        return false;
+    }
+
+    return hash_equals(
+        $authUser['hash'],
+        hash_pbkdf2('sha256', $password, $authUser['salt'], (int)$authUser['iterations'], 128)
+    );
+}
+
+function ensureAuthUsers(&$users, $path, $defaultAuthUsers) {
+    $authUsers = readAuthUsers($path);
+    $changed = false;
+
+    foreach ($users as &$user) {
+        if (isset($user['password']) && is_string($user['password'])) {
+            $credentialIndex = null;
+            foreach ($authUsers as $index => $authUser) {
+                if ((string)($authUser['user_id'] ?? '') === (string)($user['id'] ?? '')) {
+                    $credentialIndex = $index;
+                    break;
+                }
+            }
+            if ($credentialIndex === null || !verifyAuthUser($user['password'], $authUsers[$credentialIndex])) {
+                $credential = createAuthUser($user['id'], $user['password']);
+                if ($credentialIndex === null) $authUsers[] = $credential;
+                else $authUsers[$credentialIndex] = $credential;
+            }
+            unset($user['password']);
+            $changed = true;
+        }
+
+        foreach (['password_hash', 'password_salt', 'password_iterations'] as $key) {
+            if (array_key_exists($key, $user)) {
+                unset($user[$key]);
+                $changed = true;
+            }
+        }
+    }
+    unset($user);
+
+    foreach ($defaultAuthUsers as $defaultAuthUser) {
+        $credentialIndex = null;
+        foreach ($authUsers as $index => $authUser) {
+            if ((string)($authUser['user_id'] ?? '') === (string)$defaultAuthUser['user_id']) {
+                $credentialIndex = $index;
+                break;
+            }
+        }
+        if ($credentialIndex === null) {
+            $authUsers[] = createAuthUser(
+                $defaultAuthUser['user_id'],
+                $defaultAuthUser['password'],
+                $defaultAuthUser['seed_version']
+            );
+            $changed = true;
+        } elseif (($authUsers[$credentialIndex]['seed_version'] ?? null) !== $defaultAuthUser['seed_version']) {
+            $authUsers[$credentialIndex] = createAuthUser(
+                $defaultAuthUser['user_id'],
+                $defaultAuthUser['password'],
+                $defaultAuthUser['seed_version']
+            );
+            $changed = true;
+        }
+    }
+
+    if ($changed) writeAuthUsers($path, $authUsers);
+    return $authUsers;
+}
+
+function sanitizeDatabase($data) {
+    foreach ($data['users'] as &$user) {
+        unset($user['password'], $user['password_hash'], $user['password_salt'], $user['password_iterations']);
+    }
+    unset($user);
     return $data;
 }
 
-function writeDatabase($path, $data) {
-    file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+function readDatabase($path, $default, $authPath, $defaultAuthUsers) {
+    $shouldWrite = !file_exists($path);
+    if ($shouldWrite) {
+        $data = $default;
+    } else {
+        $raw = file_get_contents($path);
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            throw new RuntimeException('Unable to parse synchronized database.');
+        }
+    }
+    if (!isset($data['users'])) $data['users'] = $default['users'];
+    if (!isset($data['students'])) $data['students'] = [];
+    foreach ($data['users'] as $user) {
+        if (array_intersect(['password', 'password_hash', 'password_salt', 'password_iterations'], array_keys($user))) {
+            $shouldWrite = true;
+        }
+    }
+    ensureAuthUsers($data['users'], $authPath, $defaultAuthUsers);
+    $safeData = sanitizeDatabase($data);
+    if ($shouldWrite) writeDatabase($path, $safeData);
+    return $safeData;
 }
 
-$db = readDatabase($dbFilePath, $defaultDb);
+function writeDatabase($path, $data) {
+    $dir = dirname($path);
+    if (!is_dir($dir) && !mkdir($dir, 0777, true) && !is_dir($dir)) {
+        throw new RuntimeException('Unable to create synchronized database directory.');
+    }
+    if (file_put_contents($path, json_encode(sanitizeDatabase($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX) === false) {
+        throw new RuntimeException('Unable to write synchronized database.');
+    }
+}
+
+$db = readDatabase($dbFilePath, $defaultDb, $authFilePath, $defaultAuthUsers);
+$authUsers = readAuthUsers($authFilePath);
 
 // Parse URI & Method
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -109,9 +248,16 @@ if ($uri === '/api/auth/login' && $method === 'POST') {
     foreach ($db['users'] as $u) {
         $uEmail = strtolower($u['email'] ?? '');
         $uNisn = (string)($u['nisn'] ?? '');
-        if (($uEmail === $identifier || $uNisn === $identifier) && $u['password'] === $password) {
-            $matchedUser = $u;
-            break;
+        if ($uEmail === $identifier || $uNisn === $identifier) {
+            foreach ($authUsers as $authUser) {
+                if (
+                    (string)($authUser['user_id'] ?? '') === (string)$u['id'] &&
+                    verifyAuthUser($password, $authUser)
+                ) {
+                    $matchedUser = $u;
+                    break 2;
+                }
+            }
         }
     }
 
@@ -147,6 +293,16 @@ if ($uri === '/api/auth/register' && $method === 'POST') {
     $nisn = trim($body['nisn'] ?? '');
     $password = $body['password'] ?? '';
 
+    if (
+        !is_string($password) ||
+        !preg_match('/^(?=.*\p{L})(?=.*\p{N})(?=.*[^\p{L}\p{N}\s]).{8,}$/u', $password)
+    ) {
+        jsonResponse(422, [
+            'success' => false,
+            'message' => 'Kata sandi minimal 8 karakter dan harus memuat huruf, angka, serta simbol.'
+        ]);
+    }
+
     foreach ($db['users'] as $u) {
         if (strtolower($u['email'] ?? '') === $email) {
             jsonResponse(422, ['success' => false, 'message' => 'Email sudah terdaftar.']);
@@ -162,10 +318,11 @@ if ($uri === '/api/auth/register' && $method === 'POST') {
         'email' => $email,
         'nisn' => $nisn,
         'role' => 'siswa',
-        'password' => $password,
         'created_at' => date('c')
     ];
 
+    $authUsers[] = createAuthUser($newUser['id'], $password);
+    writeAuthUsers($authFilePath, $authUsers);
     $db['users'][] = $newUser;
     writeDatabase($dbFilePath, $db);
 

@@ -35,6 +35,12 @@ class Student extends Model
         'kecamatan',
         'kota_kabupaten',
         'provinsi',
+        'rt',
+        'rw',
+        'blok',
+        'nomor_rumah',
+        'latitude',
+        'longitude',
         'foto_rumah',
         'status_verifikasi',
         'catatan_admin',
@@ -45,6 +51,8 @@ class Student extends Model
         'penghasilan_ibu' => 'decimal:2',
         'penghasilan_total' => 'decimal:2',
         'jumlah_tanggungan' => 'integer',
+        'latitude' => 'decimal:7',
+        'longitude' => 'decimal:7',
     ];
 
     public function user()

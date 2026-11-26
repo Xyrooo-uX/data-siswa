@@ -1,9 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isStrongPassword } from '../src/utils/password.js';
 
 // Path penyimpanan database bersama
 const DB_FILE_PATH = path.resolve(process.cwd(), 'backend/database/data_synced.json');
+const AUTH_FILE_PATH = path.resolve(process.cwd(), 'backend/storage/app/private/auth_users.json');
+const AUTH_HASH_ITERATIONS = 600_000;
+const DEFAULT_CREDENTIALS = [
+  { userId: 1, password: '@AkunAdmin1234', seedVersion: 2 },
+  { userId: 2, password: 'siswa123', seedVersion: 1 }
+];
 
 // Helper untuk membaca daftar IP lokal laptop
 function getLocalNetworkIps() {
@@ -32,7 +40,6 @@ const defaultDatabase = {
       email: 'admin@sekolah.sch.id',
       nisn: null,
       role: 'admin',
-      password: 'admin123',
       created_at: new Date().toISOString()
     },
     {
@@ -41,46 +48,150 @@ const defaultDatabase = {
       email: 'siswa@sekolah.sch.id',
       nisn: '0068192341',
       role: 'siswa',
-      password: 'siswa123',
       created_at: new Date().toISOString()
     }
   ],
   students: []
 };
 
+function readAuthUsers() {
+  if (!fs.existsSync(AUTH_FILE_PATH)) return [];
+  const parsed = JSON.parse(fs.readFileSync(AUTH_FILE_PATH, 'utf-8'));
+  if (!Array.isArray(parsed)) {
+    throw new Error('Invalid private authentication store format.');
+  }
+  return parsed;
+}
+
+function writeAuthUsers(authUsers) {
+  const dir = path.dirname(AUTH_FILE_PATH);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(AUTH_FILE_PATH, JSON.stringify(authUsers, null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600
+  });
+}
+
+function createAuthUser(userId, password, seedVersion) {
+  const salt = randomBytes(16).toString('hex');
+  const authUser = {
+    user_id: userId,
+    salt,
+    iterations: AUTH_HASH_ITERATIONS,
+    hash: pbkdf2Sync(password, salt, AUTH_HASH_ITERATIONS, 64, 'sha256').toString('hex')
+  };
+  if (seedVersion !== undefined) authUser.seed_version = seedVersion;
+  return authUser;
+}
+
+function ensureAuthUsers(users) {
+  const authUsers = readAuthUsers();
+  let changed = false;
+
+  for (const user of users) {
+    if (typeof user.password === 'string') {
+      const credentialIndex = authUsers.findIndex(
+        authUser => String(authUser.user_id) === String(user.id)
+      );
+      if (credentialIndex === -1 || !verifyPassword(user.password, authUsers[credentialIndex])) {
+        const credential = createAuthUser(user.id, user.password);
+        if (credentialIndex === -1) authUsers.push(credential);
+        else authUsers[credentialIndex] = credential;
+      }
+      delete user.password;
+      changed = true;
+    }
+  }
+
+  for (const defaultCredential of DEFAULT_CREDENTIALS) {
+    const credentialIndex = authUsers.findIndex(
+      authUser => String(authUser.user_id) === String(defaultCredential.userId)
+    );
+    if (credentialIndex === -1) {
+      authUsers.push(createAuthUser(
+        defaultCredential.userId,
+        defaultCredential.password,
+        defaultCredential.seedVersion
+      ));
+      changed = true;
+    } else if (authUsers[credentialIndex].seed_version !== defaultCredential.seedVersion) {
+      authUsers[credentialIndex] = createAuthUser(
+        defaultCredential.userId,
+        defaultCredential.password,
+        defaultCredential.seedVersion
+      );
+      changed = true;
+    }
+  }
+
+  if (changed) writeAuthUsers(authUsers);
+  return authUsers;
+}
+
+function sanitizeDatabase(data) {
+  return {
+    ...data,
+    users: data.users.map(user => {
+      const profile = { ...user };
+      delete profile.password;
+      delete profile.password_hash;
+      delete profile.password_salt;
+      delete profile.password_iterations;
+      return profile;
+    })
+  };
+}
+
+function verifyPassword(password, authUser) {
+  if (
+    typeof password !== 'string' ||
+    !authUser ||
+    typeof authUser.salt !== 'string' ||
+    typeof authUser.hash !== 'string' ||
+    !Number.isSafeInteger(authUser.iterations) ||
+    authUser.iterations < 1 ||
+    authUser.iterations > AUTH_HASH_ITERATIONS
+  ) {
+    return false;
+  }
+
+  const expected = Buffer.from(authUser.hash, 'hex');
+  const actual = pbkdf2Sync(password, authUser.salt, authUser.iterations, 64, 'sha256');
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
 // Baca database dari file
 function readDb() {
+  let parsed;
   try {
     if (!fs.existsSync(DB_FILE_PATH)) {
-      const dir = path.dirname(DB_FILE_PATH);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDatabase, null, 2), 'utf-8');
-      return defaultDatabase;
+      parsed = JSON.parse(JSON.stringify(defaultDatabase));
+    } else {
+      const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+      parsed = JSON.parse(data);
     }
-    const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-    const parsed = JSON.parse(data);
-    if (!parsed.users) parsed.users = defaultDatabase.users;
+    if (!parsed.users) parsed.users = JSON.parse(JSON.stringify(defaultDatabase.users));
     if (!parsed.students) parsed.students = [];
-    return parsed;
   } catch (err) {
     console.error('[API Server] Error reading DB:', err);
-    return defaultDatabase;
+    parsed = JSON.parse(JSON.stringify(defaultDatabase));
   }
+
+  const hasLegacyPasswords = parsed.users.some(user =>
+    ['password', 'password_hash', 'password_salt', 'password_iterations']
+      .some(key => Object.prototype.hasOwnProperty.call(user, key))
+  );
+  ensureAuthUsers(parsed.users);
+  const safeData = sanitizeDatabase(parsed);
+  if (!fs.existsSync(DB_FILE_PATH) || hasLegacyPasswords) writeDb(safeData);
+  return safeData;
 }
 
 // Tulis database ke file
 function writeDb(data) {
-  try {
-    const dir = path.dirname(DB_FILE_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[API Server] Error writing DB:', err);
-  }
+  const dir = path.dirname(DB_FILE_PATH);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(DB_FILE_PATH, JSON.stringify(sanitizeDatabase(data), null, 2), 'utf-8');
 }
 
 // Helper parsing JSON body
@@ -204,8 +315,11 @@ export function apiServerPlugin() {
               (u.email && u.email.toLowerCase() === identifier) ||
               (u.nisn && u.nisn === identifier)
             );
+            const authUser = user && readAuthUsers().find(
+              savedAuthUser => String(savedAuthUser.user_id) === String(user.id)
+            );
 
-            if (!user || user.password !== password) {
+            if (!user || !verifyPassword(password, authUser)) {
               return sendJson(401, {
                 success: false,
                 message: 'Email/NISN atau kata sandi tidak valid.'
@@ -236,6 +350,13 @@ export function apiServerPlugin() {
             const { name, email, nisn, password } = body;
             const db = readDb();
 
+            if (!isStrongPassword(password)) {
+              return sendJson(422, {
+                success: false,
+                message: 'Kata sandi minimal 8 karakter dan harus memuat huruf, angka, serta simbol.'
+              });
+            }
+
             const cleanEmail = (email || '').trim().toLowerCase();
             const cleanNisn = (nisn || '').trim();
 
@@ -259,10 +380,12 @@ export function apiServerPlugin() {
               email: cleanEmail,
               nisn: cleanNisn,
               role: 'siswa',
-              password: password,
               created_at: new Date().toISOString()
             };
 
+            const authUsers = readAuthUsers();
+            authUsers.push(createAuthUser(newUser.id, password));
+            writeAuthUsers(authUsers);
             db.users.push(newUser);
             writeDb(db);
 

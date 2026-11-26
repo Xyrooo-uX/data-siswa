@@ -9,10 +9,10 @@ export default defineConfig({
     apiServerPlugin()
   ],
   server: {
-    host: '0.0.0.0', // Memungkinkan akses dari HP di jaringan yang sama (Wi-Fi / Hotspot)
+    host: '0.0.0.0',  
     port: 5173,
     cors: true,
-    allowedHosts: true // Mengizinkan akses dari tunnel publik seperti ngrok, Cloudflare Tunnel, dll.
+    allowedHosts: true 
   },
   preview: {
     host: '0.0.0.0',

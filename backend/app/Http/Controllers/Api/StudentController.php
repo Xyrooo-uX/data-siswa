@@ -92,6 +92,12 @@ class StudentController extends Controller
             'kecamatan' => 'nullable|string|max:100',
             'kota_kabupaten' => 'nullable|string|max:100',
             'provinsi' => 'nullable|string|max:100',
+            'rt' => 'nullable|string|max:20',
+            'rw' => 'nullable|string|max:20',
+            'blok' => 'nullable|string|max:50',
+            'nomor_rumah' => 'nullable|string|max:50',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
             'foto_rumah' => 'nullable', // bisa file upload atau base64 string
         ]);
 

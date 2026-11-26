@@ -8,12 +8,12 @@ Aplikasi web fullstack modern berbasis **React** (Frontend) dan **Laravel** (Bac
 
 | Kriteria Tugas | Implementasi dalam Aplikasi |
 |---|---|
-| **Sistem Login & Register** | Halaman autentikasi terpadu: **Login** (via Email atau NISN) dan **Register Siswa Baru**. Dilengkapi tombol cepat uji coba demo (*Quick Demo Login*). |
+| **Sistem Login & Register** | Halaman autentikasi terpadu: **Login** (via Email atau NISN) dan **Register Siswa Baru**. Sesi berakhir setelah 15 menit tidak aktif dan pengguna harus login ulang setelah refresh. |
 | **Pembagian Role (Siswa & Admin)** | Pembatasan hak akses ketat: <br>• **Siswa**: Hanya dapat mengakses formulir pengisian data, melihat data pengajuan diri sendiri, status verifikasi sekolah, dan cetak tanda terima.<br>• **Admin**: Mengakses seluruh dashboard analitik, 3 filter kriteria, modal detail foto rumah, status verifikasi, dan ekspor CSV. |
 | **Dikerjakan 2 Orang** | Terbagi menjadi **Orang 1** (Frontend & UI/UX Specialist) dan **Orang 2** (Backend & Database Engineer). Panduan kolaborasi Git & naskah presentasi di `docs/PANDUAN_TUGAS_2_ORANG.md`. |
 | **Upload ke Domain & Hosting Gratis** | Siap dideploy ke **Vercel / Netlify** (Domain gratis `.vercel.app`) dan backend di **Render.com / InfinityFree**. Panduan lengkap tersedia di `docs/PANDUAN_HOSTING_GRATIS.md`. |
 | **Siswa menginput data kondisi ortu & ekonomi** | Formulir memuat: nama/pekerjaan/penghasilan ayah dan ibu, status keluarga (*Lengkap, Yatim, Piatu, Yatim Piatu, Bersama Wali*), kategori ekonomi, total penghasilan, dan bansos (*KIP/PKH*). |
-| **Siswa memasukkan alamat saat ini & foto terbaru rumah** | Input alamat lengkap (Jalan, RT/RW, Desa, Kecamatan, Kota, Provinsi) serta unggah **Foto Terbaru Rumah** (drag-and-drop, validasi, live preview). |
+| **Siswa memasukkan alamat saat ini & foto terbaru rumah** | Alamat lengkap dapat diketik manual; pilihan kabupaten/kota mengikuti provinsi. Siswa juga dapat menandai rumah dengan pin yang bisa digeser di peta OpenStreetMap atau memakai lokasi perangkat. Koordinat tersimpan bersama data alamat. Foto terbaru rumah mendukung drag-and-drop, validasi, dan live preview. |
 | **Admin melihat kondisi siswa berdasarkan ekonomi** | Filter interaktif kategori ekonomi: *Sangat Kurang (< 1 Jt)*, *Kurang Mampu (1 - 3 Jt)*, *Menengah (3 - 5 Jt)*, *Mampu (> 5 Jt)*, lengkap dengan badge warna. |
 | **Admin melihat kondisi siswa berdasarkan status keluarga** | Filter interaktif status keluarga: *Orang Tua Lengkap*, *Yatim*, *Piatu*, *Yatim Piatu*, dan *Bersama Wali*. |
 | **Admin melihat kondisi siswa berdasarkan status rumah** | Filter interaktif status rumah: *Milik Sendiri*, *Sewa/Kontrak*, *Menumpang*, dan *Rumah Dinas*, lengkap dengan foto rumah terkini yang dapat diperbesar (*zoom modal*). |
@@ -27,9 +27,13 @@ Untuk keperluan penilaian / presentasi, sistem telah menyediakan akun demo bawaa
 | Role | Email / NISN | Password | Hak Akses |
 |---|---|---|---|
 | **User 1: Siswa** | `siswa@sekolah.sch.id` *(atau NISN `0068192341`)* | `siswa123` | Form Input Data, Status Pengajuan Diri, Cetak Bukti |
-| **User 2: Admin** | `admin@sekolah.sch.id` | `admin123` | Dashboard Lengkap, Filter 3 Kriteria, Zoom Foto Rumah, Verifikasi Data, Ekspor CSV |
+| **User 2: Admin** | `admin@sekolah.sch.id` | `@AkunAdmin1234` | Dashboard Lengkap, Filter 3 Kriteria, Zoom Foto Rumah, Verifikasi Data, Ekspor CSV |
 
-*(Siswa baru juga dapat langsung mendaftar melalui tab **Daftar Siswa (Register)**).*
+*(Siswa baru dapat mendaftar melalui tab **Daftar Siswa (Register)**, lalu login menggunakan akun yang dibuat).*
+
+### Keamanan kata sandi
+
+Kata sandi pendaftaran harus minimal 8 karakter dan terdiri dari huruf, angka, serta simbol. Pada API file-sync, kata sandi akun disimpan sebagai hash di `backend/storage/app/private/auth_users.json`; file tersebut diabaikan Git. Profil dalam `backend/database/data_synced.json` tidak menyimpan kata sandi. Akun lama dimigrasikan saat API dijalankan pertama kali, jadi simpan file autentikasi privat itu agar akun tetap dapat login.
 
 ---
 
@@ -57,8 +61,7 @@ data_siswa/
 │   │   ├── StudentProfileView.jsx # Halaman status verifikasi & tanda terima siswa
 │   │   ├── AdminDashboard.jsx     # Dashboard admin dengan 3 filter utama & tabel/kartu
 │   │   ├── StudentDetailModal.jsx # Modal detail siswa + zoom foto rumah & verifikasi
-│   │   ├── StudentProofModal.jsx  # Cetak bukti tanda terima siswa
-│   │   └── CollaborationGuideModal.jsx # Modal panduan tugas 2 orang & hosting gratis
+│   │   └── StudentProofModal.jsx  # Cetak bukti tanda terima siswa
 │   ├── services/
 │   │   ├── api.js                 # Integrasi Laravel API + Smart Local Fallback
 │   │   └── initialData.js         # Data awal siswa realistis

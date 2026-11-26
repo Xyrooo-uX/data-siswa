@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
+import toast from 'react-hot-toast';
 import { calculateStats, updateStudent, deleteStudent } from '../services/api';
+import confirmToast from '../utils/confirmToast';
 
 export default function AdminDashboard({
   students = [],
@@ -67,23 +69,40 @@ export default function AdminDashboard({
   // Tindakan cepat verifikasi
   const handleQuickStatusChange = async (e, id, newStatus) => {
     e.stopPropagation();
-    await updateStudent(id, { status_verifikasi: newStatus });
-    if (onRefreshData) onRefreshData();
+    try {
+      const response = await updateStudent(id, { status_verifikasi: newStatus });
+      if (!response.success) {
+        toast.error(response.message || 'Gagal memperbarui status verifikasi.');
+        return;
+      }
+
+      toast.success('Status verifikasi berhasil diperbarui.');
+      if (onRefreshData) onRefreshData();
+    } catch {
+      toast.error('Terjadi kendala saat memperbarui status verifikasi.');
+    }
   };
 
   // Hapus data
   const handleDelete = async (e, id, nama) => {
     e.stopPropagation();
-    if (window.confirm(`Yakin ingin menghapus data siswa ${nama}?`)) {
-      await deleteStudent(id);
-      if (onRefreshData) onRefreshData();
-    }
+    const confirmed = await confirmToast({
+      message: `Yakin ingin menghapus data siswa ${nama}?`,
+      confirmText: 'Hapus',
+      destructive: true
+    });
+
+    if (!confirmed) return;
+
+    await deleteStudent(id);
+    toast.success(`Data siswa ${nama} berhasil dihapus.`);
+    if (onRefreshData) onRefreshData();
   };
 
   // Ekspor CSV
   const handleExportCSV = () => {
     if (filteredStudents.length === 0) {
-      alert('Tidak ada data siswa untuk diekspor.');
+      toast.error('Tidak ada data siswa untuk diekspor.');
       return;
     }
 
@@ -119,6 +138,7 @@ export default function AdminDashboard({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    toast.success('Data siswa berhasil diekspor.');
   };
 
   // Cetak Rekapitulasi Laporan
@@ -471,6 +491,17 @@ export default function AdminDashboard({
         /* MODE TABEL DATA */
         <div className="table-responsive-container">
           <table className="admin-table">
+            <colgroup>
+              <col className="admin-table-col-photo" />
+              <col className="admin-table-col-student" />
+              <col className="admin-table-col-class" />
+              <col className="admin-table-col-economy" />
+              <col className="admin-table-col-family" />
+              <col className="admin-table-col-house" />
+              <col className="admin-table-col-address" />
+              <col className="admin-table-col-verification" />
+              <col className="admin-table-col-actions" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Foto Rumah</th>
@@ -518,7 +549,12 @@ export default function AdminDashboard({
                     </span>
                   </td>
                   <td className="max-w-address">
-                    <span className="truncate">{student.alamat_lengkap}, {student.kota_kabupaten}</span>
+                    <span
+                      className="table-address-text"
+                      title={`${student.alamat_lengkap}, ${student.kota_kabupaten}`}
+                    >
+                      {student.alamat_lengkap}, {student.kota_kabupaten}
+                    </span>
                   </td>
                   <td>
                     <span className={`badge-verification ${student.status_verifikasi === 'Terverifikasi' ? 'verified' : student.status_verifikasi === 'Perlu Revisi' ? 'revision' : 'pending'}`}>

@@ -1,4 +1,5 @@
 import { initialStudents } from './initialData';
+import { isStrongPassword } from '../utils/password';
 
 // Penentuan URL API secara cerdas & otomatis:
 // 1. Jika diset di .env (misal VITE_API_URL saat deploy), gunakan nilai tersebut.
@@ -31,6 +32,7 @@ const CURRENT_USER_KEY = 'sip_current_user_v4';
 try {
   localStorage.removeItem('sip_data_siswa_records');
   localStorage.removeItem('sip_data_siswa_records_clean');
+  localStorage.removeItem(CURRENT_USER_KEY);
 } catch { }
 
 // Inisialisasi Database User Lokal untuk offline/demo fallback
@@ -41,7 +43,7 @@ const defaultUsers = [
     email: 'admin@sekolah.sch.id',
     nisn: null,
     role: 'admin',
-    password: 'admin123',
+    password: '@AkunAdmin1234',
     created_at: new Date().toISOString()
   },
   {
@@ -62,7 +64,13 @@ function getLocalUsers() {
     return defaultUsers;
   }
   try {
-    return JSON.parse(existing);
+    const users = JSON.parse(existing);
+    const adminUser = users.find(user => user.email === 'admin@sekolah.sch.id');
+    if (adminUser?.password === 'admin123') {
+      adminUser.password = '@AkunAdmin1234';
+      saveLocalUsers(users);
+    }
+    return users;
   } catch {
     return defaultUsers;
   }
@@ -90,30 +98,13 @@ function saveLocalRecords(records) {
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
 }
 
-// ---------------------------------------------------------------------------
-// AUTENTIKASI: LOGIN, REGISTER, LOGOUT, GET CURRENT USER
-// ---------------------------------------------------------------------------
-
-export function getCurrentUser() {
-  const saved = localStorage.getItem(CURRENT_USER_KEY);
-  if (!saved) return null;
-  try {
-    return JSON.parse(saved);
-  } catch {
-    return null;
-  }
-}
-
-export function saveCurrentUser(user) {
-  if (user) {
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-  } else {
-    localStorage.removeItem(CURRENT_USER_KEY);
-  }
-}
-
+// Sesi hanya disimpan di state aplikasi, bukan di browser storage.
 export function logoutUser() {
-  localStorage.removeItem(CURRENT_USER_KEY);
+  try {
+    localStorage.removeItem(CURRENT_USER_KEY);
+  } catch {
+    // Logout tetap berhasil meskipun browser menolak akses ke storage.
+  }
   return { success: true };
 }
 
@@ -151,7 +142,6 @@ export async function loginUser(emailOrNisn, password) {
     if (res.ok) {
       const result = await res.json();
       const user = result.data?.user || result.user;
-      saveCurrentUser(user);
       return { success: true, user, source: 'backend' };
     } else {
       const err = await res.json().catch(() => ({}));
@@ -185,12 +175,18 @@ export async function loginUser(emailOrNisn, password) {
     role: matchedUser.role,
   };
 
-  saveCurrentUser(safeUser);
   return { success: true, user: safeUser, source: 'local' };
 }
 
 // Register Siswa Baru (Role otomatis 'siswa')
 export async function registerUser({ name, email, nisn, password }) {
+  if (!isStrongPassword(password)) {
+    return {
+      success: false,
+      message: 'Kata sandi minimal 8 karakter dan harus memuat huruf, angka, serta simbol.'
+    };
+  }
+
   // 1. Coba registrasi ke backend server
   try {
     const controller = new AbortController();
@@ -206,7 +202,6 @@ export async function registerUser({ name, email, nisn, password }) {
     if (res.ok) {
       const result = await res.json();
       const newUser = result.data || result.user;
-      saveCurrentUser(newUser);
       return { success: true, user: newUser, source: 'backend' };
     } else {
       const err = await res.json().catch(() => ({}));
@@ -250,30 +245,12 @@ export async function registerUser({ name, email, nisn, password }) {
     role: newUser.role,
   };
 
-  saveCurrentUser(safeUser);
   return { success: true, user: safeUser, source: 'local' };
 }
 
 // ---------------------------------------------------------------------------
 // DATA SISWA (CRUD, FILTERS, & STATS)
 // ---------------------------------------------------------------------------
-
-// Cek apakah Server Backend sedang aktif / online
-export async function checkBackendConnection() {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`${API_BASE_URL}/health`, {
-      headers: defaultHeaders,
-      credentials: 'omit',
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 // Ambil semua data siswa dengan filter & pencarian
 export async function fetchStudents(filters = {}) {

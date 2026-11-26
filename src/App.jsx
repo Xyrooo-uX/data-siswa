@@ -6,18 +6,20 @@ import StudentProfileView from './components/StudentProfileView';
 import AdminDashboard from './components/AdminDashboard';
 import StudentDetailModal from './components/StudentDetailModal';
 import StudentProofModal from './components/StudentProofModal';
-import CollaborationGuideModal from './components/CollaborationGuideModal';
-import { fetchStudents, checkBackendConnection, getCurrentUser, logoutUser } from './services/api';
+import { fetchStudents, logoutUser } from './services/api';
+import toast from 'react-hot-toast';
+import confirmToast from './utils/confirmToast';
 import './App.css';
 
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
+  const [currentUser, setCurrentUser] = useState(null);
   const [students, setStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [backendOnline, setBackendOnline] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [proofStudent, setProofStudent] = useState(null);
-  const [showGuide, setShowGuide] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   
   // Tab aktif khusus untuk siswa: 'form' (isi formulir) atau 'profile' (lihat data & status verifikasi)
   const [siswaTab, setSiswaTab] = useState('form');
@@ -37,49 +39,91 @@ export default function App() {
     }
   }, []);
 
-  // Cek backend status saat aplikasi pertama kali dimuat
-  useEffect(() => {
-    async function init() {
-      const isOnline = await checkBackendConnection();
-      setBackendOnline(isOnline);
-      await loadStudents();
-    }
-    init();
-  }, [loadStudents]);
-
   // Polling sinkronisasi realtime antara Laptop & HP setiap 3,5 detik
   useEffect(() => {
-    const syncInterval = setInterval(async () => {
-      try {
-        const isOnline = await checkBackendConnection();
-        setBackendOnline(isOnline);
-        if (currentUser) {
-          await loadStudents(true);
-        }
-      } catch {
-        // abaikan error koneksi saat background polling
-      }
-    }, 3500);
+    if (!currentUser) return undefined;
+
+    const syncInterval = setInterval(() => loadStudents(true), 3500);
 
     return () => clearInterval(syncInterval);
   }, [currentUser, loadStudents]);
 
+  const expireSession = useCallback(() => {
+    logoutUser();
+    setCurrentUser(null);
+    setSelectedStudent(null);
+    setProofStudent(null);
+    setSessionExpired(true);
+  }, []);
+
+  // Akhiri sesi setelah 15 menit tanpa aktivitas pengguna.
+  useEffect(() => {
+    if (!currentUser) return undefined;
+
+    let lastActivityAt = Date.now();
+    let timeoutId;
+
+    const expireIfIdle = () => {
+      expireSession();
+    };
+
+    const scheduleLogout = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(expireIfIdle, IDLE_TIMEOUT_MS);
+    };
+
+    const recordActivity = () => {
+      if (Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) {
+        expireIfIdle();
+        return;
+      }
+      lastActivityAt = Date.now();
+      scheduleLogout();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        recordActivity();
+      }
+    };
+
+    const activityEvents = ['pointerdown', 'keydown', 'mousemove', 'touchstart', 'scroll'];
+    activityEvents.forEach(eventName => window.addEventListener(eventName, recordActivity));
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    scheduleLogout();
+
+    return () => {
+      clearTimeout(timeoutId);
+      activityEvents.forEach(eventName => window.removeEventListener(eventName, recordActivity));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentUser, expireSession]);
+
   // Handler Login Berhasil
   const handleLoginSuccess = (user) => {
+    setSessionExpired(false);
     setCurrentUser(user);
+    loadStudents();
     if (user.role === 'siswa') {
       setSiswaTab('form');
     }
   };
 
   // Handler Logout
-  const handleLogout = () => {
-    if (window.confirm('Apakah Anda yakin ingin keluar dari sistem?')) {
-      logoutUser();
-      setCurrentUser(null);
-      setSelectedStudent(null);
-      setProofStudent(null);
-    }
+  const handleLogout = async () => {
+    const confirmed = await confirmToast({
+      message: 'Apakah Anda yakin ingin keluar dari sistem?',
+      confirmText: 'Keluar'
+    });
+
+    if (!confirmed) return;
+
+    logoutUser();
+    setCurrentUser(null);
+    setSelectedStudent(null);
+    setProofStudent(null);
+    setSessionExpired(false);
+    toast.success('Anda berhasil keluar.');
   };
 
   // Handler ketika siswa baru berhasil input data
@@ -96,15 +140,8 @@ export default function App() {
       <div className="app-layout">
         <AuthPage
           onLoginSuccess={handleLoginSuccess}
-          onOpenGuide={() => setShowGuide(true)}
-          backendOnline={backendOnline}
+          sessionExpired={sessionExpired}
         />
-
-        {showGuide && (
-          <CollaborationGuideModal
-            onClose={() => setShowGuide(false)}
-          />
-        )}
       </div>
     );
   }
@@ -118,8 +155,6 @@ export default function App() {
       <Navbar
         currentUser={currentUser}
         onLogout={handleLogout}
-        onOpenGuide={() => setShowGuide(true)}
-        backendOnline={backendOnline}
         siswaTab={siswaTab}
         setSiswaTab={setSiswaTab}
       />
@@ -171,16 +206,12 @@ export default function App() {
       <footer className="app-footer">
         <div className="footer-container">
           <p>
-            Tugas KIK Kelas 12 | Dikerjakan oleh 2 Orang (Frontend React & Backend Laravel)
+            © 2026 RPL SMKN 12 Malang
           </p>
           <div className="footer-links">
             <span className="user-logged-hint">
               Masuk sebagai: <strong>{currentUser.name}</strong> ({currentUser.role.toUpperCase()})
             </span>
-            <span className="separator">|</span>
-            <button type="button" onClick={() => setShowGuide(true)} className="footer-btn">
-              Panduan Kolaborasi & Hosting Gratis
-            </button>
             <span className="separator">|</span>
             <button type="button" onClick={handleLogout} className="footer-btn logout-text">
               Keluar (Logout)
@@ -206,12 +237,6 @@ export default function App() {
         />
       )}
 
-      {/* MODAL: PANDUAN TUGAS 2 ORANG & HOSTING GRATIS */}
-      {showGuide && (
-        <CollaborationGuideModal
-          onClose={() => setShowGuide(false)}
-        />
-      )}
     </div>
   );
 }
